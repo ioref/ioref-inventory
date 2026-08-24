@@ -2,6 +2,7 @@ from datetime import timedelta
 
 from django.contrib.admin import site
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.test import RequestFactory, TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -757,6 +758,9 @@ class CategoryTests(TestCase):
         Part.objects.create(
             part_number="0002", short_name="M3 bolt", group=self.fasteners
         )
+        self.loose_sensor = Part.objects.create(
+            part_number="0003", short_name="Loose sensor", category=self.gadgets
+        )
         self.client = APIClient()
         _, token = ApiKey.generate("ioref-web", scope=ApiKey.Scope.READ)
         self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
@@ -778,7 +782,30 @@ class CategoryTests(TestCase):
     def test_parts_can_be_filtered_by_category(self):
         response = self.client.get("/api/v1/parts/?category=gadgets")
         numbers = [p["part_number"] for p in response.data["results"]]
-        self.assertEqual(numbers, ["0001"])
+        self.assertEqual(numbers, ["0001", "0003"])
+
+    def test_part_response_exposes_its_effective_category(self):
+        grouped = self.client.get("/api/v1/parts/0001/")
+        ungrouped = self.client.get("/api/v1/parts/0003/")
+        self.assertEqual(grouped.data["category"], "gadgets")
+        self.assertEqual(ungrouped.data["category"], "gadgets")
+
+    def test_ungrouped_category_filter_excludes_grouped_parts(self):
+        response = self.client.get(
+            "/api/v1/parts/?category=gadgets&ungrouped=true"
+        )
+        self.assertEqual(
+            [part["part_number"] for part in response.data["results"]], ["0003"]
+        )
+
+    def test_direct_category_is_only_for_ungrouped_parts(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Part.objects.create(
+                part_number="0004",
+                short_name="Ambiguous sensor",
+                group=self.resistors,
+                category=self.gadgets,
+            )
 
     def test_categories_are_listed(self):
         response = self.client.get("/api/v1/categories/")

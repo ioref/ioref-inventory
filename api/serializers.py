@@ -95,6 +95,9 @@ class PartSerializer(serializers.ModelSerializer):
         required=False,
     )
     group = GroupSerializer(read_only=True)
+    category = serializers.SlugRelatedField(
+        source="effective_category", slug_field="slug", read_only=True
+    )
     tags = serializers.SlugRelatedField(slug_field="slug", many=True, read_only=True)
     on_floor = serializers.IntegerField(read_only=True)
     in_backstock = serializers.IntegerField(read_only=True)
@@ -112,6 +115,7 @@ class PartSerializer(serializers.ModelSerializer):
             "status",
             "unit",
             "group",
+            "category",
             "tags",
             "location",
             "min_quantity",

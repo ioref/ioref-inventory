@@ -177,7 +177,14 @@ class PartAdmin(ModelAdmin):
         "in_backstock",
         "stock_state",
     )
-    list_filter = (StockStateFilter, "status", "group", "tags", "location")
+    list_filter = (
+        StockStateFilter,
+        "status",
+        "group",
+        "category",
+        "tags",
+        "location",
+    )
     search_fields = (
         "part_number",
         "short_name",
@@ -186,9 +193,9 @@ class PartAdmin(ModelAdmin):
         "manufacturer",
         "manufacturer_part_num",
     )
-    autocomplete_fields = ("group", "tags")
+    autocomplete_fields = ("group", "category", "tags")
     inlines = (StockEventInline, PriceObservationInline)
-    list_select_related = ("location", "group")
+    list_select_related = ("location", "group", "category")
 
     @action(description="Record count", icon="add", url_path="record-count")
     def record_count(self, request, object_id):

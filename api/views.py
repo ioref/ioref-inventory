@@ -1,4 +1,4 @@
-from django.db.models import Count, F, OuterRef, Prefetch, Subquery, Value
+from django.db.models import Count, F, OuterRef, Prefetch, Q, Subquery, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
@@ -54,7 +54,7 @@ class PartViewSet(viewsets.ModelViewSet):
         # properties, and Django applies annotations with setattr(), which cannot
         # write through a data descriptor. The properties read these back.
         queryset = (
-            Part.objects.select_related("location", "group")
+            Part.objects.select_related("location", "group__category", "category")
             .prefetch_related("tags")
             .annotate(
                 _ann_on_floor=_latest_quantity_subquery(StockEvent.Kind.INVENTORY),
@@ -76,8 +76,13 @@ class PartViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(location__code=location)
         if (group := params.get("group")) is not None:
             queryset = queryset.filter(group__slug=group)
+        if params.get("ungrouped") in ("1", "true", "yes"):
+            queryset = queryset.filter(group__isnull=True)
         if (category := params.get("category")) is not None:
-            queryset = queryset.filter(group__category__slug=category)
+            queryset = queryset.filter(
+                Q(group__category__slug=category)
+                | Q(group__isnull=True, category__slug=category)
+            )
         if (tag := params.get("tag")) is not None:
             queryset = queryset.filter(tags__slug=tag)
         if (search := params.get("search")) is not None:

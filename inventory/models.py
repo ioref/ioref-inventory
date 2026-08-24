@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import F, OuterRef, Subquery, Value
 from django.db.models.functions import Coalesce
@@ -158,10 +159,9 @@ def _latest_quantity(kind):
 class Part(models.Model):
     """A stocked item.
 
-    Deliberately excludes guide content. Write-ups, categories and images live
-    in ioref-web and join to this table on `part_number`. Keeping them out is
-    what makes this app deployable by another organization with its own parts
-    and no interest in ours.
+    Deliberately excludes guide content. Write-ups and images live in ioref-web
+    and join to this table on `part_number`. The teaching category stays here
+    with the stock classification, normally through the part's group.
     """
 
     class Status(models.TextChoices):
@@ -191,6 +191,14 @@ class Part(models.Model):
         related_name="parts",
         help_text="What kind of part this is. Independent of where it sits.",
     )
+    category = models.ForeignKey(
+        Category,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="ungrouped_parts",
+        help_text="Guides category for an ungrouped part. Leave blank when a group is set.",
+    )
     tags = models.ManyToManyField(
         Tag,
         blank=True,
@@ -219,9 +227,27 @@ class Part(models.Model):
 
     class Meta:
         ordering = ("part_number",)
+        constraints = (
+            models.CheckConstraint(
+                condition=models.Q(group__isnull=True) | models.Q(category__isnull=True),
+                name="part_category_only_without_group",
+            ),
+        )
 
     def __str__(self):
         return f"{self.part_number} {self.short_name}"
+
+    def clean(self):
+        super().clean()
+        if self.group_id and self.category_id:
+            raise ValidationError(
+                {"category": "Set a category on the group, not on a grouped part."}
+            )
+
+    @property
+    def effective_category(self):
+        """The group's category, or the direct fallback for an ungrouped part."""
+        return self.group.category if self.group_id else self.category
 
     # ---- Derived stock values -------------------------------------------
     # Never stored. A stored total is a second copy of what the events already
