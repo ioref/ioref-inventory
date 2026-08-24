@@ -59,24 +59,6 @@ jobs:
           echo "ref=${IMAGE}:sha-${SHA}" >> "$GITHUB_OUTPUT"
           echo "Deploying ${IMAGE}:sha-${SHA}"
 
-      - name: Resolve the container name
-        id: container
-        run: |
-          # Quadlet names the container systemd-<unit-basename> unless the
-          # .container file sets ContainerName= itself, so guessing $UNIT's
-          # basename here is a bet that can quietly be wrong. Quadlet does
-          # always attach a PODMAN_SYSTEMD_UNIT label matching the unit, so
-          # look the name up rather than assume it: a wrong guess makes every
-          # later step below fail with "no such container" regardless of
-          # whether the deploy actually worked, which is exactly what rolled
-          # back a healthy container before this was added.
-          NAME="$(podman ps -a --filter "label=PODMAN_SYSTEMD_UNIT=$UNIT" --format '{{.Names}}' | head -1)"
-          if [ -z "$NAME" ]; then
-            echo "::error::No container carries the label PODMAN_SYSTEMD_UNIT=$UNIT. Is the Quadlet unit installed and named as expected?"
-            exit 1
-          fi
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-
       - name: Record what is running now
         id: current
         run: |
@@ -90,15 +72,32 @@ jobs:
         run: podman pull "${{ steps.target.outputs.ref }}"
 
       - name: Retag and restart
+        id: restart
         run: |
           podman tag "${{ steps.target.outputs.ref }}" "$LOCAL_TAG"
+          systemctl --user daemon-reload
           systemctl --user restart "$UNIT"
+
+      - name: Resolve the container name
+        id: container
+        run: |
+          # The first deployment creates the container, so discovery must
+          # happen after the Quadlet service starts. Looking up its systemd
+          # label avoids depending on Podman's generated container name.
+          NAME="$(podman ps -a --filter "label=PODMAN_SYSTEMD_UNIT=$UNIT" --format '{{.Names}}' | head -1)"
+          if [ -z "$NAME" ]; then
+            echo "::error::No container carries the label PODMAN_SYSTEMD_UNIT=$UNIT after restarting the service."
+            systemctl --user status "$UNIT" --no-pager || true
+            exit 1
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
 
       - name: Wait for health
         id: health
         run: |
-          # The image's own healthcheck, so this asks the container the same
-          # question podman does rather than inventing a second definition.
+          # The Quadlet's own HealthCmd= (not the image's: a plain OCI push
+          # to GHCR carries no HEALTHCHECK at all), so this asks the same
+          # question podman itself does rather than inventing a second one.
           CONTAINER="${{ steps.container.outputs.name }}"
           for attempt in $(seq 1 30); do
             if podman healthcheck run "$CONTAINER" >/dev/null 2>&1; then
@@ -112,7 +111,7 @@ jobs:
           exit 1
 
       - name: Roll back
-        if: failure() && steps.health.outcome == 'failure' && steps.current.outputs.id != ''
+        if: failure() && steps.current.outputs.id != ''
         run: |
           echo "::warning::Restoring ${{ steps.current.outputs.id }}"
           podman tag "${{ steps.current.outputs.id }}" "$LOCAL_TAG"
