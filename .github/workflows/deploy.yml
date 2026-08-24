@@ -106,7 +106,11 @@ jobs:
             fi
             sleep 2
           done
-          echo "::error::Never became healthy. Last 50 log lines:"
+          echo "::error::Never became healthy. Healthcheck configuration and state:"
+          podman inspect "$CONTAINER" \
+            --format 'Config: {{json .Config.Healthcheck}} State: {{json .State.Healthcheck}}' || true
+          podman healthcheck run "$CONTAINER" || true
+          echo "Last 50 container log lines:"
           podman logs --tail 50 "$CONTAINER" || true
           exit 1
 
