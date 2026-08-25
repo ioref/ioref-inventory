@@ -100,6 +100,7 @@ class StockEventInline(TabularInline):
 class PriceObservationInline(TabularInline):
     model = PriceObservation
     extra = 0
+    show_title = False
     fields = (
         "price",
         "currency",

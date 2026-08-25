@@ -680,6 +680,19 @@ class PurchaseLinkTests(TestCase):
         self.assertContains(response, 'target="_blank"')
         self.assertContains(response, 'rel="noopener noreferrer"')
 
+    def test_the_admin_inline_omits_the_redundant_object_label(self):
+        self.client.force_login(
+            get_user_model().objects.create_superuser(
+                username="labels@andrew.cmu.edu", password="x"
+            )
+        )
+
+        response = self.client.get(
+            reverse("admin:inventory_part_change", args=[self.part.pk])
+        )
+
+        self.assertNotContains(response, str(self.part.price_observations.get()))
+
     def test_the_admin_inline_includes_an_editable_purchase_link(self):
         self.client.force_login(
             get_user_model().objects.create_superuser(
