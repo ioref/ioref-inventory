@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from accounts.models import ApiKey
+from inventory.admin import PartAdminForm
 from inventory.models import (
     Category,
     Group,
@@ -18,6 +19,37 @@ from inventory.models import (
     StockEvent,
     Tag,
 )
+
+
+class PartStatusFormTests(TestCase):
+    def test_status_combobox_lists_canonical_and_existing_values(self):
+        Part.objects.create(
+            part_number="0001", short_name="Test part", status="awaiting_quote"
+        )
+
+        field = PartAdminForm().fields["status"]
+        choices = dict(field.widget.choices)
+
+        self.assertEqual(field.widget.attrs["data-tags"], "true")
+        self.assertIn(Part.Status.ACTIVE, choices)
+        self.assertIn("awaiting_quote", choices)
+
+    def test_status_field_accepts_a_new_value(self):
+        field = PartAdminForm().fields["status"]
+
+        self.assertEqual(field.clean("on_backorder"), "on_backorder")
+
+
+class LocationLabelTests(TestCase):
+    def test_case_only_code_and_name_are_not_repeated(self):
+        location = Location(code="soldering bench", name="Soldering bench")
+
+        self.assertEqual(str(location), "Soldering bench")
+
+    def test_distinct_code_and_name_are_both_shown(self):
+        location = Location(code="B1-R1-C1", name="Resistors")
+
+        self.assertEqual(str(location), "B1-R1-C1 (Resistors)")
 
 
 class StockDerivationTests(TestCase):
@@ -275,7 +307,9 @@ class PublicBrowseTests(TestCase):
         written, so a typo in the slug or the template conditional would have
         shipped silently."""
         power = Category.objects.get(slug="power")
-        resistors = Group.objects.create(name="Resistors", slug="resistor", category=power)
+        resistors = Group.objects.create(
+            name="Resistors", slug="resistor", category=power
+        )
         self.part.group = resistors
         self.part.save()
 
@@ -622,7 +656,7 @@ class RecordFromPartTests(TestCase):
 
 
 class PurchaseLinkTests(TestCase):
-    """Purchase links leave for a supplier, so they open in a new tab."""
+    """Purchase links can be entered and opened from the part admin."""
 
     def setUp(self):
         self.part = Part.objects.create(part_number="0010", short_name="resistor")
@@ -645,6 +679,32 @@ class PurchaseLinkTests(TestCase):
         )
         self.assertContains(response, 'target="_blank"')
         self.assertContains(response, 'rel="noopener noreferrer"')
+
+    def test_the_admin_inline_includes_an_editable_purchase_link(self):
+        self.client.force_login(
+            get_user_model().objects.create_superuser(
+                username="editor@andrew.cmu.edu", password="x"
+            )
+        )
+
+        response = self.client.get(
+            reverse("admin:inventory_part_change", args=[self.part.pk])
+        )
+
+        self.assertContains(
+            response, 'name="price_observations-__prefix__-purchase_link"'
+        )
+
+    def test_a_new_price_observation_defaults_to_now(self):
+        before = timezone.now()
+
+        observation = PriceObservation(
+            part=self.part,
+            price="1.50",
+        )
+
+        self.assertGreaterEqual(observation.observed_at, before)
+        self.assertLessEqual(observation.observed_at, timezone.now())
 
     def test_the_public_page_does_too(self):
         self.client.force_login(
@@ -791,9 +851,7 @@ class CategoryTests(TestCase):
         self.assertEqual(ungrouped.data["category"], "gadgets")
 
     def test_ungrouped_category_filter_excludes_grouped_parts(self):
-        response = self.client.get(
-            "/api/v1/parts/?category=gadgets&ungrouped=true"
-        )
+        response = self.client.get("/api/v1/parts/?category=gadgets&ungrouped=true")
         self.assertEqual(
             [part["part_number"] for part in response.data["results"]], ["0003"]
         )

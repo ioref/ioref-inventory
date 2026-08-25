@@ -5,12 +5,12 @@ from django.contrib import admin
 from django.db.models import Count
 from django.shortcuts import redirect
 from django.urls import reverse
-from django.utils.html import format_html, format_html_join
+from django.utils.html import format_html
 from django.utils.http import urlencode
 from unfold.admin import ModelAdmin, TabularInline
 from unfold.contrib.filters.admin import RangeDateFilter
 from unfold.decorators import action
-from unfold.widgets import UnfoldAdminTextInputWidget
+from unfold.widgets import UnfoldAdminSelect2Widget
 
 from .models import (
     Category,
@@ -100,7 +100,15 @@ class StockEventInline(TabularInline):
 class PriceObservationInline(TabularInline):
     model = PriceObservation
     extra = 0
-    fields = ("price", "currency", "supplier", "purchase", "observed_at", "note")
+    fields = (
+        "price",
+        "currency",
+        "supplier",
+        "purchase_link",
+        "purchase",
+        "observed_at",
+        "note",
+    )
     readonly_fields = ("purchase",)
     ordering = ("-observed_at",)
     can_delete = False
@@ -108,7 +116,7 @@ class PriceObservationInline(TabularInline):
     def has_change_permission(self, request, obj=None):
         return False
 
-    @admin.display(description="Purchase link")
+    @admin.display(description="Open link")
     def purchase(self, obj):
         """The supplier's page, opened in a new tab.
 
@@ -125,36 +133,37 @@ class PriceObservationInline(TabularInline):
         )
 
 
-class StatusInput(UnfoldAdminTextInputWidget):
-    """Free text, with the canonical values offered as suggestions.
-
-    Part.status has no `choices=`, because staff need to record statuses the
-    four canonical values don't cover, so this renders a plain text input backed
-    by a <datalist> instead of a <select>, letting a click-through pick still
-    reach the common values without constraining what can be typed.
-    """
-
-    def render(self, name, value, attrs=None, renderer=None):
-        list_id = (
-            f"{attrs['id']}_suggestions"
-            if attrs and attrs.get("id")
-            else "status_suggestions"
-        )
-        attrs = {**(attrs or {}), "list": list_id}
-        input_html = super().render(name, value, attrs, renderer)
-        options = format_html_join(
-            "", '<option value="{}">', ((choice,) for choice, _ in Part.Status.choices)
-        )
-        return format_html(
-            '{}<datalist id="{}">{}</datalist>', input_html, list_id, options
-        )
-
-
 class PartAdminForm(forms.ModelForm):
+    status = forms.CharField(
+        widget=UnfoldAdminSelect2Widget(
+            attrs={
+                "data-placeholder": "Select or enter a status",
+                "data-tags": "true",
+            }
+        )
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        statuses = {
+            value.casefold(): (value, label) for value, label in Part.Status.choices
+        }
+        for value in (
+            Part.objects.exclude(status="").values_list("status", flat=True).distinct()
+        ):
+            statuses.setdefault(value.casefold(), (value, value))
+
+        current = getattr(self.instance, "status", "")
+        if current:
+            statuses.setdefault(current.casefold(), (current, current))
+
+        self.fields["status"].widget.choices = sorted(
+            statuses.values(), key=lambda choice: choice[1].casefold()
+        )
+
     class Meta:
         model = Part
         fields = "__all__"
-        widgets = {"status": StatusInput}
 
 
 @admin.register(Part)

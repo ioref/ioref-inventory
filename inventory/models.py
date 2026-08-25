@@ -28,6 +28,8 @@ class Location(models.Model):
         ordering = ("code",)
 
     def __str__(self):
+        if self.name and self.code.casefold() == self.name.casefold():
+            return self.name
         return f"{self.code} ({self.name})" if self.name else self.code
 
 
@@ -229,7 +231,8 @@ class Part(models.Model):
         ordering = ("part_number",)
         constraints = (
             models.CheckConstraint(
-                condition=models.Q(group__isnull=True) | models.Q(category__isnull=True),
+                condition=models.Q(group__isnull=True)
+                | models.Q(category__isnull=True),
                 name="part_category_only_without_group",
             ),
         )
@@ -381,13 +384,15 @@ class PriceObservation(models.Model):
     part = models.ForeignKey(
         Part, on_delete=models.CASCADE, related_name="price_observations"
     )
-    # 4dp, because dividing a bulk pack price gives unit prices like $2.282.
-    price = models.DecimalField(max_digits=12, decimal_places=4)
+    # 5dp preserves low unit prices from bulk purchases, such as $0.01087.
+    price = models.DecimalField(max_digits=12, decimal_places=5)
     currency = models.CharField(max_length=3, default="USD")
     supplier = models.CharField(max_length=200, blank=True)
     purchase_link = models.URLField(max_length=1000, blank=True)
 
-    observed_at = models.DateTimeField()
+    observed_at = models.DateTimeField(
+        default=timezone.now, help_text="When the price was observed."
+    )
     recorded_at = models.DateTimeField(auto_now_add=True)
     recorded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
