@@ -14,15 +14,11 @@ any, and where"; what it cost and who sold it is procurement's business.
 """
 
 from django.conf import settings
-from django.core.paginator import Paginator
-from django.db.models import F, OuterRef, Q, Subquery, Value
-from django.db.models.functions import Coalesce
+from django.db.models import OuterRef, Subquery
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
 
-from .models import Group, Location, Part, StockEvent
-
-PAGE_SIZE = 100
+from .models import Part, StockEvent
 
 
 def _latest_quantity(kind):
@@ -45,59 +41,22 @@ def _may_see_costs(request):
 def part_list(request):
     _browsable()
 
-    search = request.GET.get("q", "").strip()
-    location = request.GET.get("location", "").strip()
-    group = request.GET.get("group", "").strip()
-    show = request.GET.get("show", "").strip()
-
     # See CLAUDE.md: the annotations cannot be named on_floor/in_backstock,
     # which are read-only properties that setattr() cannot write through.
     parts = (
-        Part.objects.select_related("location", "group")
-        .prefetch_related("tags")
-        .annotate(
+        Part.objects.annotate(
             _ann_on_floor=_latest_quantity(StockEvent.Kind.INVENTORY),
             _ann_in_backstock=_latest_quantity(StockEvent.Kind.BACKSTOCK),
         )
-        .exclude(status=Part.Status.DISCONTINUED)
+        .order_by("part_number")
     )
-
-    if search:
-        parts = parts.filter(
-            Q(short_name__icontains=search)
-            | Q(description__icontains=search)
-            | Q(part_number__icontains=search)
-        )
-    if location:
-        parts = parts.filter(location__code=location)
-    if group:
-        parts = parts.filter(group__slug=group)
-    if show == "low":
-        parts = parts.annotate(
-            _total=Coalesce(F("_ann_on_floor"), Value(0))
-            + Coalesce(F("_ann_in_backstock"), Value(0))
-        ).filter(min_quantity__isnull=False, _total__lt=F("min_quantity"))
-
-    paginator = Paginator(parts, PAGE_SIZE)
-    page = paginator.get_page(request.GET.get("page"))
 
     return render(
         request,
         "inventory/part_list.html",
         {
-            "page_obj": page,
-            "parts": page.object_list,
-            "total": paginator.count,
-            "search": search,
-            "location": location,
-            "group": group,
-            "show": show,
-            "groups": Group.objects.filter(parts__isnull=False).distinct(),
-            # Only locations holding something, so the filter is not a wall of
-            # empty bins.
-            "locations": Location.objects.filter(
-                is_active=True, parts__isnull=False
-            ).distinct(),
+            "parts": parts,
+            "total": parts.count(),
             "may_see_costs": _may_see_costs(request),
         },
     )

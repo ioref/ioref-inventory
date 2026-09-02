@@ -5,80 +5,341 @@
 {% block content %}
 <h1>Parts</h1>
 
-<form class="filters" method="get">
-    <input type="search" name="q" value="{{ search }}" placeholder="Search name, description or number" aria-label="Search">
-    <select name="group" aria-label="Kind">
-        <option value="">Any kind</option>
-        {% for g in groups %}
-            <option value="{{ g.slug }}" {% if g.slug == group %}selected{% endif %}>{{ g }}</option>
-        {% endfor %}
-    </select>
-    <select name="location" aria-label="Location">
-        <option value="">Anywhere</option>
-        {% for loc in locations %}
-            <option value="{{ loc.code }}" {% if loc.code == location %}selected{% endif %}>{{ loc }}</option>
-        {% endfor %}
-    </select>
-    <label class="check">
-        <input type="checkbox" name="show" value="low" {% if show == "low" %}checked{% endif %}>
-        Below minimum only
+<div class="spreadsheet-controls">
+    <input
+        type="search"
+        id="search"
+        placeholder="Search part number, name, or description…"
+        aria-label="Search parts"
+        class="search-input">
+    <label class="show-discontinued-label">
+        <input type="checkbox" id="showDiscontinued" aria-label="Show discontinued parts">
+        Show discontinued
     </label>
-    <button type="submit">Filter</button>
-    {% if search or location or group or show %}<a class="clear" href="{% url 'part_list' %}">Clear</a>{% endif %}
-</form>
+</div>
 
-<p class="count">{{ total }} part{{ total|pluralize }}</p>
-
-<table>
-    <thead>
-        <tr>
-            <th scope="col">Number</th>
-            <th scope="col">Part</th>
-            <th scope="col">Kind</th>
-            <th scope="col">Location</th>
-            <th scope="col" class="num">On floor</th>
-            <th scope="col" class="num">Backstock</th>
-            <th scope="col" class="num">Total</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for part in parts %}
+<div class="spreadsheet-wrapper">
+    <table class="spreadsheet">
+        <thead>
             <tr>
-                <td class="num-id"><a href="{% url 'part_detail' part.part_number %}">{{ part.part_number }}</a></td>
-                <td>
-                    {{ part.short_name }}
-                    {% if part.status != "active" %}<span class="status">{{ part.get_status_display }}</span>{% endif %}
-                </td>
-                <td>
-                    {{ part.group|default:"—" }}
-                    {% if part.group.category %}<span class="category category-{{ part.group.category.slug }}">{{ part.group.category.name }}</span>{% endif %}
-                </td>
-                <td>{{ part.location|default:"—" }}</td>
-                <td class="num">{{ part.on_floor|default_if_none:"—" }}</td>
-                <td class="num">{{ part.in_backstock|default_if_none:"—" }}</td>
-                <td class="num">
-                    {% if part.total_on_hand is None %}
-                        <span class="uncounted" title="Never counted">—</span>
-                    {% elif part.needs_restock %}
-                        <span class="low" title="Below the minimum of {{ part.min_quantity }}">{{ part.total_on_hand }}</span>
-                    {% else %}{{ part.total_on_hand }}{% endif %}
-                </td>
+                <th scope="col" class="sortable" data-sort="part_number">Part Number</th>
+                <th scope="col" class="sortable" data-sort="short_name">Short Name</th>
+                <th scope="col" class="sortable" data-sort="description">Description</th>
+                <th scope="col" class="sortable numeric" data-sort="on_floor">On Floor</th>
             </tr>
-        {% empty %}
-            <tr><td colspan="7" class="empty">Nothing matches that search.</td></tr>
-        {% endfor %}
-    </tbody>
-</table>
+        </thead>
+        <tbody id="parts-tbody">
+            {% for part in parts %}
+                <tr class="part-row{% if part.status == 'discontinued' %} discontinued{% endif %}"
+                    data-part-number="{{ part.part_number|lower }}"
+                    data-short-name="{{ part.short_name|lower }}"
+                    data-description="{{ part.description|lower }}"
+                    data-status="{{ part.status|lower }}"
+                    data-on-floor="{{ part.on_floor|default:0 }}"
+                    data-is-discontinued="{% if part.status == 'discontinued' %}true{% else %}false{% endif %}">
+                    <td class="part-number"><a href="https://ioref.org/parts/{{ part.part_number }}/">{{ part.part_number }}</a></td>
+                    <td class="short-name"><a href="https://ioref.org/parts/{{ part.part_number }}/">{{ part.short_name }}</a></td>
+                    <td class="description" title="{{ part.description|default:'' }}">{{ part.description|default:"—" }}</td>
+                    <td class="on-floor numeric">{{ part.on_floor|default:"—" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">No parts found.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 
-{% if page_obj.has_other_pages %}
-    <nav class="pager">
-        {% if page_obj.has_previous %}
-            <a href="?q={{ search }}&location={{ location }}&group={{ group }}&show={{ show }}&page={{ page_obj.previous_page_number }}">&larr; Previous</a>
-        {% endif %}
-        <span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
-        {% if page_obj.has_next %}
-            <a href="?q={{ search }}&location={{ location }}&group={{ group }}&show={{ show }}&page={{ page_obj.next_page_number }}">Next &rarr;</a>
-        {% endif %}
-    </nav>
-{% endif %}
+<p class="part-count">{{ total }} part{{ total|pluralize }}</p>
+
+<style>
+.spreadsheet-controls {
+    display: flex;
+    gap: 1rem;
+    margin: 1.5rem 0;
+    align-items: center;
+}
+
+.search-input {
+    flex: 1;
+    max-width: 400px;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+    border: 1px solid #c4c4c4;
+    border-radius: 4px;
+    font-family: inherit;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #4f4f4f;
+    box-shadow: 0 0 0 2px rgba(79, 79, 79, 0.1);
+}
+
+.show-discontinued-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+}
+
+.show-discontinued-label input {
+    cursor: pointer;
+}
+
+.spreadsheet-wrapper {
+    overflow-x: auto;
+    border: 1px solid #c4c4c4;
+    border-radius: 4px;
+    margin: 1.5rem 0;
+}
+
+.spreadsheet {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+    background: #fdfdfd;
+    table-layout: auto;
+}
+
+.spreadsheet thead {
+    background: #f2f2f2;
+    border-bottom: 1px solid #c4c4c4;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.spreadsheet th {
+    padding: 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    color: #1d1d1d;
+    font-size: 0.9rem;
+    text-transform: none;
+    border-right: 1px solid #c4c4c4;
+    white-space: nowrap;
+    user-select: none;
+}
+
+.spreadsheet th:last-child {
+    border-right: none;
+}
+
+.spreadsheet th.sortable {
+    cursor: pointer;
+    position: relative;
+    padding-right: 1.75rem;
+}
+
+.spreadsheet th.sortable:hover {
+    background: #e8e8e8;
+}
+
+.spreadsheet th.sortable::after {
+    content: '';
+    position: absolute;
+    right: 0.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #c4c4c4;
+    opacity: 0.5;
+}
+
+.spreadsheet th.sortable.asc::after {
+    border-top: 5px solid #4f4f4f;
+    opacity: 1;
+}
+
+.spreadsheet th.sortable.desc::after {
+    border-top: none;
+    border-bottom: 5px solid #4f4f4f;
+    opacity: 1;
+}
+
+.spreadsheet tbody tr {
+    border-bottom: 1px solid #f2f2f2;
+    transition: background-color 0.15s ease;
+}
+
+.spreadsheet tbody tr:hover {
+    background: #f9f9f9;
+}
+
+.spreadsheet tbody tr.hidden {
+    display: none;
+}
+
+.spreadsheet tbody tr.discontinued {
+    opacity: 0.7;
+}
+
+.spreadsheet tbody tr.discontinued td {
+    text-decoration: line-through;
+    color: #999;
+}
+
+.spreadsheet td {
+    padding: 0.625rem 0.75rem;
+    border-right: 1px solid #f2f2f2;
+    vertical-align: top;
+}
+
+.spreadsheet td:last-child {
+    border-right: none;
+}
+
+.spreadsheet .part-number {
+    font-weight: 500;
+    font-family: monospace;
+    font-size: 0.9rem;
+}
+
+.spreadsheet .part-number a,
+.spreadsheet .short-name a {
+    color: inherit;
+    text-decoration: none;
+}
+
+.spreadsheet .part-number a:hover,
+.spreadsheet .short-name a:hover {
+    text-decoration: underline;
+}
+
+.spreadsheet .short-name {
+    font-weight: 500;
+}
+
+.spreadsheet .description {
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: #636466;
+}
+
+.spreadsheet td.numeric {
+    text-align: right;
+    font-family: monospace;
+}
+
+.spreadsheet .empty {
+    text-align: center;
+    color: #999;
+    padding: 2rem 0.75rem;
+}
+
+.part-count {
+    font-size: 0.9rem;
+    color: #636466;
+    margin-top: 1rem;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('search');
+    const showDiscontinuedCheckbox = document.getElementById('showDiscontinued');
+    const tbody = document.getElementById('parts-tbody');
+    const rows = Array.from(tbody.querySelectorAll('.part-row'));
+    const headers = document.querySelectorAll('th.sortable');
+    const partCount = document.querySelector('.part-count');
+
+    let currentSort = { column: 'part_number', direction: 'asc' };
+    const totalParts = rows.length;
+
+    function filterAndDisplay() {
+        const searchTerm = searchInput.value.toLowerCase().trim();
+        const showDiscontinued = showDiscontinuedCheckbox.checked;
+
+        let visibleCount = 0;
+
+        rows.forEach(row => {
+            const isDiscontinued = row.dataset.isDiscontinued === 'true';
+            const matchesSearch = !searchTerm ||
+                row.dataset.partNumber.includes(searchTerm) ||
+                row.dataset.shortName.includes(searchTerm) ||
+                row.dataset.description.includes(searchTerm);
+            const shouldShow = matchesSearch && (!isDiscontinued || showDiscontinued);
+
+            row.classList.toggle('hidden', !shouldShow);
+            if (shouldShow) visibleCount++;
+        });
+
+        updatePartCount(visibleCount);
+    }
+
+    function updatePartCount(count) {
+        partCount.textContent = count + ' part' + (count !== 1 ? 's' : '') +
+            (count !== totalParts ? ' (filtered from ' + totalParts + ')' : '');
+    }
+
+    function sortRows(column, direction) {
+        const sortMap = {
+            'part_number': 'partNumber',
+            'short_name': 'shortName',
+            'description': 'description',
+            'on_floor': 'onFloor'
+        };
+
+        const dataAttr = sortMap[column];
+
+        rows.sort((a, b) => {
+            let aVal = a.dataset[dataAttr] || '';
+            let bVal = b.dataset[dataAttr] || '';
+
+            // Numeric sort for on_floor
+            if (column === 'on_floor') {
+                aVal = parseInt(aVal) || 0;
+                bVal = parseInt(bVal) || 0;
+            } else {
+                aVal = aVal.toLowerCase();
+                bVal = bVal.toLowerCase();
+            }
+
+            if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+            if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+            return 0;
+        });
+
+        // Re-append sorted rows to tbody
+        rows.forEach(row => tbody.appendChild(row));
+
+        // Update header indicators
+        headers.forEach(h => {
+            h.classList.remove('asc', 'desc');
+            if (h.dataset.sort === column) {
+                h.classList.add(direction);
+            }
+        });
+
+        currentSort = { column, direction };
+    }
+
+    // Event listeners
+    searchInput.addEventListener('input', filterAndDisplay);
+    showDiscontinuedCheckbox.addEventListener('change', filterAndDisplay);
+
+    headers.forEach(header => {
+        header.addEventListener('click', function() {
+            const column = this.dataset.sort;
+            let direction = 'asc';
+
+            if (currentSort.column === column && currentSort.direction === 'asc') {
+                direction = 'desc';
+            }
+
+            sortRows(column, direction);
+        });
+    });
+
+    // Initial sort by part number ascending
+    sortRows('part_number', 'asc');
+    updatePartCount(rows.length);
+});
+</script>
 {% endblock %}
