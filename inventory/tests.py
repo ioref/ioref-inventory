@@ -313,10 +313,10 @@ class PublicBrowseTests(TestCase):
         self.part.group = resistors
         self.part.save()
 
-        for url in ("/", "/parts/0002/"):
-            response = self.client.get(url)
-            self.assertContains(response, 'class="category category-power"')
-            self.assertContains(response, "Power")
+        # Category badge only shown on detail page, not in spreadsheet list view
+        response = self.client.get("/parts/0002/")
+        self.assertContains(response, 'class="category category-power"')
+        self.assertContains(response, "Power")
 
     def test_an_uncategorized_group_shows_no_badge(self):
         """The common case today: Category exists but is not yet populated
@@ -328,29 +328,22 @@ class PublicBrowseTests(TestCase):
             response = self.client.get(url)
             self.assertNotContains(response, "category category-")
 
-    def test_search_filters(self):
+    def test_all_parts_returned_for_client_side_filtering(self):
+        # Client-side filtering means all parts are returned in the HTML
         Part.objects.create(part_number="0099", short_name="brass wool")
-        self.assertContains(self.client.get("/?q=brass"), "brass wool")
-        self.assertNotContains(self.client.get("/?q=brass"), "soldering heat sink")
+        response = self.client.get("/")
+        self.assertContains(response, "brass wool")
+        self.assertContains(response, "soldering heat sink")
 
-    def test_low_stock_filter(self):
-        # 5 on hand against a minimum of 2, so not low.
-        self.assertNotContains(self.client.get("/?show=low"), "soldering heat sink")
-        StockEvent.objects.create(
-            part=self.part,
-            kind=StockEvent.Kind.INVENTORY,
-            quantity=1,
-            observed_at=timezone.now(),
-        )
-        self.assertContains(self.client.get("/?show=low"), "soldering heat sink")
-
-    def test_discontinued_parts_are_hidden(self):
+    def test_discontinued_parts_included_for_client_side_toggle(self):
+        # Discontinued parts are now shown with client-side checkbox toggle
         Part.objects.create(
             part_number="0028",
             short_name="retired thing",
             status=Part.Status.DISCONTINUED,
         )
-        self.assertNotContains(self.client.get("/"), "retired thing")
+        response = self.client.get("/")
+        self.assertContains(response, "retired thing")
 
     def test_unknown_part_404s(self):
         self.assertEqual(self.client.get("/parts/9999/").status_code, 404)
