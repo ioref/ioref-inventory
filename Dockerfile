@@ -5,7 +5,7 @@
 # version something it can raise a pull request against. `latest` here would
 # also mean an upstream release could change a build with no commit to explain
 # it. See "Maintenance" in CLAUDE.md.
-FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
+FROM ghcr.io/astral-sh/uv:0.12.21 AS uv
 
 FROM python:3.14-slim AS base
 ENV PYTHONUNBUFFERED=1 \
